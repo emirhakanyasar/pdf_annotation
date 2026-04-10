@@ -331,6 +331,41 @@ input[type=range]::-webkit-slider-thumb {
   white-space: nowrap;
 }
 
+/* Layout picker */
+.layout-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 3px;
+}
+.layout-btn {
+  height: 24px;
+  min-width: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink2);
+  font-family: 'Outfit', sans-serif;
+  transition: all 0.12s;
+  padding: 0 7px;
+  display: flex; align-items: center; justify-content: center;
+}
+.layout-btn:hover { background: white; color: var(--ink); }
+.layout-btn.active { background: white; color: var(--ink); box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+
+/* Page rows */
+.page-row {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  align-items: flex-start;
+}
+
 /* Zoom */
 .zoom-ctrl {
   display: flex;
@@ -468,6 +503,21 @@ input[type=range]::-webkit-slider-thumb {
   <span class="tb-file-name" id="file-name">—</span>
   <span class="pg-counter" id="pg-counter">1 / 1</span>
 
+  <div class="layout-ctrl">
+    <button class="layout-btn active" data-cols="1" onclick="setLayout(1,this)">
+      <svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor"><rect x="1" y="1" width="10" height="12" rx="1.5"/></svg>
+    </button>
+    <button class="layout-btn" data-cols="2" onclick="setLayout(2,this)">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="0.5" y="1" width="5.5" height="12" rx="1.5"/><rect x="8" y="1" width="5.5" height="12" rx="1.5"/></svg>
+    </button>
+    <button class="layout-btn" data-cols="3" onclick="setLayout(3,this)">
+      <svg width="17" height="14" viewBox="0 0 17 14" fill="currentColor"><rect x="0" y="1" width="4" height="12" rx="1"/><rect x="6.5" y="1" width="4" height="12" rx="1"/><rect x="13" y="1" width="4" height="12" rx="1"/></svg>
+    </button>
+    <button class="layout-btn" data-cols="4" onclick="setLayout(4,this)">
+      <svg width="20" height="14" viewBox="0 0 20 14" fill="currentColor"><rect x="0" y="1" width="3.5" height="12" rx="1"/><rect x="5.5" y="1" width="3.5" height="12" rx="1"/><rect x="11" y="1" width="3.5" height="12" rx="1"/><rect x="16.5" y="1" width="3.5" height="12" rx="1"/></svg>
+    </button>
+  </div>
+
   <div class="zoom-ctrl">
     <button class="zoom-btn" onclick="doZoom(-0.15)">−</button>
     <span id="zoom-val">100%</span>
@@ -504,7 +554,7 @@ input[type=range]::-webkit-slider-thumb {
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 // ── State ──
-let pdf = null, zoom = 1, totalPages = 0, curPage = 1;
+let pdf = null, zoom = 1, totalPages = 0, curPage = 1, pagesPerRow = 1;
 let tool = 'pen', color = '#ff5533', brushSize = 1, opacity = 1;
 let drawing = false, curStroke = null, lastX = 0, lastY = 0;
 let annotations = {}, annHistory = {};
@@ -542,9 +592,8 @@ async function load(file) {
   document.getElementById('upload-area').style.display = 'none';
   const pc = document.getElementById('pages-container');
   pc.style.display = 'flex';
-  pc.innerHTML = '';
 
-  for (let i = 1; i <= totalPages; i++) await renderPage(i, pc);
+  await renderAll();
 
   document.getElementById('topbar').classList.add('show');
   document.getElementById('file-name').textContent = file.name;
@@ -553,12 +602,38 @@ async function load(file) {
   showToast(`${totalPages} sayfa yüklendi ✓`);
 }
 
-async function renderPage(n, container) {
+async function renderAll() {
+  const pc = document.getElementById('pages-container');
+  pc.innerHTML = '';
+  pc.style.flexDirection = 'column';
+  pc.style.alignItems = 'center';
+
+  // Calculate effective zoom so N pages fit nicely
+  const availW = document.getElementById('main').clientWidth - 120;
+  const testPage = await pdf.getPage(1);
+  const baseVp = testPage.getViewport({ scale: 1.6 });
+  const pageW = baseVp.width;
+  const totalGap = (pagesPerRow - 1) * 16;
+  const fitScale = pagesPerRow > 1 ? Math.min(zoom, (availW - totalGap) / (pageW * pagesPerRow)) : zoom;
+  const effectiveZoom = fitScale;
+
+  for (let i = 1; i <= totalPages; i += pagesPerRow) {
+    const row = document.createElement('div');
+    row.className = 'page-row';
+    pc.appendChild(row);
+    for (let j = i; j < i + pagesPerRow && j <= totalPages; j++) {
+      await renderPage(j, row, effectiveZoom);
+    }
+  }
+}
+
+async function renderPage(n, container, effectiveZoom) {
+  if (effectiveZoom === undefined) effectiveZoom = zoom;
   if (!annotations[n]) annotations[n] = { strokes: [], texts: [] };
   if (!annHistory[n]) annHistory[n] = [];
 
   const page = await pdf.getPage(n);
-  const vp = page.getViewport({ scale: 1.6 * zoom });
+  const vp = page.getViewport({ scale: 1.6 * effectiveZoom });
 
   const wrap = document.createElement('div');
   wrap.className = 'page-wrap';
@@ -835,9 +910,15 @@ async function doZoom(d) {
   zoom = Math.max(0.4, Math.min(3, zoom + d));
   document.getElementById('zoom-val').textContent = Math.round(zoom*100) + '%';
   if (!pdf) return;
-  const pc = document.getElementById('pages-container');
-  pc.innerHTML = '';
-  for (let i=1;i<=totalPages;i++) await renderPage(i, pc);
+  await renderAll();
+}
+
+async function setLayout(n, btn) {
+  pagesPerRow = n;
+  document.querySelectorAll('.layout-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (!pdf) return;
+  await renderAll();
 }
 
 // ── Save ──
