@@ -908,27 +908,25 @@ document.addEventListener('mousedown', e => {
 // ── Zoom ──
 async function doZoom(d) {
   const mainEl = document.getElementById('main');
-  const scrollTop = mainEl.scrollTop;
-  const scrollHeight = mainEl.scrollHeight;
-  const ratio = scrollHeight > 0 ? scrollTop / scrollHeight : 0;
+  const ratio = mainEl.scrollHeight > 0 ? mainEl.scrollTop / mainEl.scrollHeight : 0;
 
   zoom = Math.max(0.4, Math.min(3, zoom + d));
   document.getElementById('zoom-val').textContent = Math.round(zoom*100) + '%';
   if (!pdf) return;
   await renderAll();
-
-  // Restore proportional scroll position
-  requestAnimationFrame(() => {
-    mainEl.scrollTop = ratio * mainEl.scrollHeight;
-  });
+  mainEl.scrollTop = ratio * mainEl.scrollHeight;
 }
 
 async function setLayout(n, btn) {
+  const mainEl = document.getElementById('main');
+  const ratio = mainEl.scrollHeight > 0 ? mainEl.scrollTop / mainEl.scrollHeight : 0;
+
   pagesPerRow = n;
   document.querySelectorAll('.layout-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   if (!pdf) return;
   await renderAll();
+  mainEl.scrollTop = ratio * mainEl.scrollHeight;
 }
 
 // ── Save ──
